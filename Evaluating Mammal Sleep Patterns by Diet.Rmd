@@ -1,0 +1,221 @@
+---
+title: "Evaluating Mammal Sleep Patterns by Diet"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###### We'll be examining the msleep dataset from ggplot2. We want to determine if mammal diet (here called "vore") affects the total amount of time spent sleeping (Sleep_total), the total amount of time spent in REM sleep (Sleep_rem), and the length of a sleep cycle (Sleep_cycle). We'll clean, analyze, and examine the dataset below. 
+
+###### We need the following libraries.
+
+```{r}
+library(ggdist)
+library(rstatix)
+library(scales)
+library(tidyverse)
+```
+
+###### Let's check out the dataset.
+
+```{r}
+view(msleep)
+```
+
+# Data Cleaning
+
+###### I don't like how many missing values there are in this dataset. I thought about writing a webscraper script to fill in the missing data for the sleep-related variables (total, rem, and cycle), but that is beyond the scope of this project. The dataset is small, so I found the missing values for vore and filled them in using the Internet zoology resources, Animalia. I checked again at the end to ensure I didn't miss any values. 
+
+```{r}
+sum(is.na(msleep$vore))
+```
+
+```{r}
+msleep[8,3] <- "herbi"
+msleep[55,3] <- "insecti"
+msleep[57,3] <- "omni"
+msleep[58,3] <- "herbi"
+msleep[63,3] <- "herbi"
+msleep[69,3] <- "herbi"
+msleep[73,3] <- "insecti"
+sum(is.na(msleep$vore))
+```
+
+###### I did the same process again for conservation status. The International Union for Conservation of Nature (IUCN) determined nine categories for threatened species: Not Evaluated, Data Deficient, Least Concern, Near Threatened, Vulnerable, Endangered, Critically Endangered, Extinct in the Wild, and Extinct. The dataset included "domesticated" as a status. I noticed that missing values in this column were used for two reasons: multiple species under a given name or not included in the IUCN database. Truly missing values were taken from Animalia, and missing values due to multiple species were then entered accordingly. 
+
+```{r}
+sum(is.na(msleep$conservation))
+```
+
+```{r}
+msleep[8,5] <- "lc"
+msleep[16,5] <- "lc"
+msleep[27,5] <- "lc"
+msleep[34,5] <- "domesticated"
+msleep[65,5] <- "lc"
+msleep[68,5] <- "lc"
+msleep[73,5] <- "lc"
+msleep[75,5] <- "lc"
+msleep[76,5] <- "lc"
+msleep[82,5] <- "lc"
+msleep[83,5] <- "lc"
+
+msleep$conservation <- msleep$conservation %>% replace_na("ms")
+
+sum(is.na(msleep$conservation))
+```
+
+###### Making naming and capitalization consistent.
+
+```{r}
+msleep$conservation[msleep$conservation == "cd"] <- "Critically Endangered"
+msleep$conservation[msleep$conservation == "domesticated"] <- "Domesticated"
+msleep$conservation[msleep$conservation == "en"] <- "Endangered"
+msleep$conservation[msleep$conservation == "lc"] <- "Least Concern"
+msleep$conservation[msleep$conservation == "ms"] <- "Multiple Species"
+msleep$conservation[msleep$conservation == "nt"] <- "Near Threatened"
+msleep$conservation[msleep$conservation == "vu"] <- "Vulnerable"
+
+msleep$vore[msleep$vore == "carni"] <- "Carnivore"
+msleep$vore[msleep$vore == "herbi"] <- "Herbivore"
+msleep$vore[msleep$vore == "insecti"] <- "Insectivore"
+msleep$vore[msleep$vore == "omni"] <- "Omnivore"
+
+msleep$name <- str_to_title(msleep$name)
+names(msleep) <- str_to_title(names(msleep))
+```
+
+###### Check data set to ensure cleaning occurred.
+
+```{r}
+view(msleep)
+```
+
+# Data Analysis 
+
+###### Here are some summary statistics grouped by vore. In the tibble, we see sample size, minimum value, maximum value, median, mean, and standard deviation. We will see some of this as boxplots in the visualization section. 
+
+```{r}
+sumstat <- msleep %>%
+  group_by(Vore) %>%
+  select(Sleep_total, Sleep_rem, Sleep_cycle) %>%
+  get_summary_stats() 
+
+view(sumstat)
+```
+
+###### The summary statistics are helpful. Let's check for differences in the means of the vore groups over the three variables we discussed at the beginning. 
+
+```{r}
+summary(aov(Sleep_total ~ Vore, data = msleep))
+summary(aov(Sleep_rem ~ Vore, data = msleep))
+summary(aov(Sleep_cycle ~ Vore, data = msleep))
+```
+
+###### Based on the significance of the p-value (alpha = 0.05), here is no difference for total amount of sleep, but there is a difference for total REM sleep and length of sleep cycle. Use Tukey's honestly significant difference (HSD) test to see where the differences exist.
+
+```{r}
+TukeyHSD(aov(Sleep_rem ~ Vore, data = msleep))
+TukeyHSD(aov(Sleep_cycle ~ Vore, data = msleep))
+```
+
+###### Check the adjusted p-value. For REM sleep, we see differences for the Herbivore-Carnivore, Insectivore-Herbivore, Omnivore-Herbivore, and Omnivore-Insectivore pairings. For length of sleep cycle, this difference only exists for the Omnivore-Insectivore pairing. 
+
+###### This is most likely due to missing values. The REM sleep variable has 22 missing values, and the sleep cycle variable has 51 missing values. 
+
+```{r}
+sum(is.na(msleep$Sleep_rem))
+sum(is.na(msleep$Sleep_cycle))
+```
+
+# Data Visualization
+
+###### Here are some preliminary plots. The first plot represents mammals by vore, and the second plot shows vore by conservation status. We clearly see herbivores comprise the majority of our dataset. Herbivores and carnivores are distributed over all conservation statuses, but it appears that insectivores and omnivores are focused among the Least Concern and Multiple Species statuses. 
+
+```{r}
+ggplot(msleep, aes(Vore)) +
+  geom_bar() +
+  labs(title = "Mammals by Vore", x = "Vore", y = "Number of Mammals") +
+  ylim(0, 40) +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(face = "bold")) 
+
+ggplot(msleep) + 
+  geom_bar(aes(Conservation, fill = Vore)) + 
+  scale_fill_manual(values=c('#fde725', '#35b779', '#31688e', '#440154')) +
+  labs(title = "Mammals by Conservation Status", x = "Conservation Status", y = "Number of Mammals") +
+  ylim(0, 40) +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(face = "bold")) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+###### Let's view some boxplots for total sleep, total REM sleep, and sleep cycle. 
+
+```{r}
+ggplot(msleep, aes(x = factor(Vore), y = Sleep_total)) +
+    geom_boxplot() +
+    scale_y_continuous(breaks = pretty(c(0,20), n = 5), limits = c(0,20)) +
+    labs(title = "Total Sleep by Vore", x = "Vore", y = "Total Sleep (hour)") +
+    theme_classic() +
+    theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(face = "bold")) +
+    stat_summary(fun = mean, geom = "point", col = "red") +  
+    stat_summary(fun = mean, geom = "text", col = "red",     
+               vjust = -2, aes(label = paste("Mean:", round(..y.., digits = 2))))
+
+ggplot(msleep, aes(x = factor(Vore), y = Sleep_rem)) +
+    geom_boxplot() +
+    scale_y_continuous(breaks = pretty(c(0,10), n = 4), limits = c(0,8)) +
+    labs(title = "Total REM Sleep by Vore", x = "Vore", y = "Total REM Sleep (hour)", caption = "22 values are missing.") +
+    theme_classic() +
+    theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(face = "bold")) +
+    stat_summary(fun = mean, geom = "point", col = "red") +  
+    stat_summary(fun = mean, geom = "text", col = "red",     
+               vjust = 2.2, aes(label = paste("Mean:", round(..y.., digits = 2))))
+```
+
+###### Consider the total sleep graphic. Carnivores had the biggest spread of data. Carnivores had the closest mean to the median. Insectivores had the highest mean, and herbivores had the lowest mean. I believe this is due to their sample sizes. Omnivores had the most outliers. Carnivores and omnivores almost had the same median. 
+
+###### Consider the REM sleep graphic, which has 22 missing values. Carnivores had the biggest spread of data. Omnivores had the closest mean to the median. Insectivores had the highest mean, and herbivores had the lowest mean. Herbivores was the only group without outliers. Carnivores and omnivores almost had the same median. Notice the interquartile range (IQR) is much smaller for this graphic. This may be due to the amount of missing values for this variable. 
+
+###### For the variable Sleep_cycle (length of sleep cycle), there are 51 missing values. A boxplot doesn't yield clear results. Use a dot plot grouped and colored by vore instead. (If the graphic doesn't visualize after the first run, run it a second time.)
+
+```{r}
+ggplot(msleep, aes(x = factor(Vore), y = Sleep_cycle, fill = Vore)) +
+  stat_dots(position = "dodge", dotsize = 2) +
+  scale_fill_manual(values=c('#fde725', '#35b779', '#31688e', '#440154')) +
+  scale_y_continuous(breaks = pretty(c(0,1.6), n = 8), limits = c(0,1.6)) +
+  labs(title = "Length of Sleep Cycle by Vore", x = "Vore", y = "Length of Sleep Cycle (hours)",
+       caption = "51 values are missing.") + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(face = "bold")) +
+  theme(axis.text.x = element_text(angle = 90)) 
+```
+
+###### From the summary statistics, we know that the medians were 0.38 for carnivores, 0.22 for herbivores, 0.18 for insectivores, and 0.50 for omnivores; the means were 0.37 for carnivores, 0.42 for herbivores, 0.17 for insectivores, and 0.60 for omnivores. With this graphic, we can also see modes. The modes were around 0.40 for carnivores, 0.20 for herbivores, 0.20 for insectivores, and 0.20 for omnivores. The carnivore and insectivore groups had means and medians very close to their modes. This is probably due to sample sizes. Herbivores had a median that was very close to its mode. Herbivores had the highest mean, and insectivores had the lowest mean.
+
+###### Because of the ANOVA results, total sleep seems to be the only reliable variable. There may be a relationship between total sleep and brain weight. Here is a scatter plot that is colored by vore. The x-axis is scaled logarithmically to better show the spread of data. The color for Insectivore was changed to red to better show contrast for the scatter plot.
+
+```{r}
+ggplot(msleep, aes(Brainwt, Sleep_total)) + 
+  geom_point(aes(color = Vore), size = 2.5) +
+  scale_color_manual(values=c('Carnivore' = '#fde725', 'Herbivore' = '#35b779', 'Insectivore' = 'red', 'Omnivore' = '#440154')) +
+  labs(title = "Total Sleep versus Brain Weight", x = "Brain Weight (kg)", y = "Total Sleep (hours)",
+       caption = "There are 27 brain weight values missing. The x-axis is \n scaled by logarithm base-10 due to size of values.") +
+  scale_x_log10(labels = label_number()) +
+  geom_smooth(se = FALSE) +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(face = "bold")) 
+
+summary(lm(Sleep_total ~ Brainwt, msleep))
+```
+
+###### It appears there is a negative correlation between total sleep and brain weight, however the model only accounts for 11.38% of the total variance. Linear modeling is beyond the scope of this project, so no further steps will be taken. 
+
+# Conclusion
+
+###### Mammal vore doesn't influence total amount of sleep, and it may not influence total amount of REM sleep (ANOVA shows some difference between those means). There is not enough data to determine if vore influences length of sleep cycle. There may be a relationship between total among of sleep and brain weight.
